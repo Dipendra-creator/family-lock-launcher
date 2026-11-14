@@ -1,0 +1,14 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+
+# Release signing key - never commit
+release.keystore
+keystore.properties
+*.jks
+
+# Built APKs (published as GitHub releases instead)
+dist/

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Family Lock</string>
+    <string name="accessibility_description">Family Lock watches which app is on screen and asks for the parent PIN when a locked app or a protected settings page is opened.</string>
+    <string name="admin_description">Prevents Family Lock from being uninstalled without the parent PIN.</string>
+</resources>
