@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,7 +47,8 @@ import com.familylock.launcher.ui.PinPad
 import com.familylock.launcher.ui.ProtectionStatus
 import com.familylock.launcher.ui.SetPinFlow
 import com.familylock.launcher.ui.StepAction
-import com.familylock.launcher.ui.TempAccessScreen
+import com.familylock.launcher.ui.MainScreenAccessScreen
+import com.familylock.launcher.ui.Bw
 import kotlinx.coroutines.delay
 
 /** Every screen the launcher can show. Navigation is just a state variable. */
@@ -87,6 +89,12 @@ class MainActivity : ComponentActivity() {
     /** Bumped on every resume so the UI re-reads system state (a11y on? default home? app list?). */
     private var refresh by mutableIntStateOf(0)
 
+    /** Where a correct PIN on the PIN screen leads: the parent panel or the main-screen access picker. */
+    private var pinTarget by mutableStateOf(Screen.ADMIN)
+
+    /** Where Cancel/Back on the access picker returns to (home screen or parent panel). */
+    private var accessReturn by mutableStateOf(Screen.HOME)
+
     /** True once the PIN was entered on the "accessibility is off" warning (until we leave the launcher). */
     private var a11yWarningCleared by mutableStateOf(false)
 
@@ -102,6 +110,8 @@ class MainActivity : ComponentActivity() {
                 ?: Screen.OB_APPS
             else -> Screen.HOME
         }
+
+        forwardHomeDuringFullAccess(intent)
 
         setContent {
             FamilyLockTheme {
@@ -140,6 +150,50 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         if (!screen.isOnboarding) screen = Screen.HOME
         consumeMasterReset()
+        forwardHomeDuringFullAccess(intent)
+    }
+
+    /**
+     * During timed full access the phone should behave normally, so a press of the
+     * Home button (which Android delivers here, as the default home app) is passed
+     * on to the phone's own launcher. Opening Family Lock from its app icon is not
+     * forwarded, so the parent can still get back in and end the session early.
+     */
+    private fun forwardHomeDuringFullAccess(intent: Intent?) {
+        if (intent?.hasCategory(Intent.CATEGORY_HOME) != true || screen.isOnboarding) return
+        if (LockManager.isProtectionActive() && LockManager.isTempAccessActive()) HomeMode.openMainScreen(this)
+    }
+
+    /** Timed full access: unlock everything for [minutes] and show the phone's normal home screen. */
+    private fun startFullAccess(minutes: Long) {
+        LockManager.startTempAccess(minutes * 60_000L)
+        screen = Screen.HOME
+        HomeMode.openMainScreen(this)
+    }
+
+    /**
+     * "Permanent return to main screen": switch protection off and hand the Home
+     * button back to the phone's own launcher until the parent turns Family Lock
+     * back on from its app icon.
+     */
+    private fun returnToMainScreenPermanently() {
+        LockManager.stopTempAccess()
+        LockManager.update { setProtectionEnabled(false) }
+        screen = Screen.HOME
+        // Only give up the Home button if another launcher exists to take it.
+        if (HomeMode.mainLauncher(this) != null) {
+            HomeMode.setHomeEnabled(this, false)
+            HomeMode.openMainScreen(this)
+        }
+        refresh++
+    }
+
+    /** Undo the permanent return: protection on, and ask to be the home app again. */
+    private fun turnFamilyLockBackOn() {
+        HomeMode.setHomeEnabled(this, true)
+        LockManager.update { setProtectionEnabled(true) }
+        refresh++
+        SystemActions.requestDefaultHome(this)
     }
 
     /** The master code was typed on the lock overlay: go straight to "set a new PIN". */
@@ -165,6 +219,8 @@ class MainActivity : ComponentActivity() {
                 batteryExempt = Status.isIgnoringBatteryOptimizations(this),
             )
         }
+
+        val homeEnabled = remember(tick, screen) { HomeMode.isHomeEnabled(this) }
 
         // All launchable apps; reloaded whenever the launcher resumes (apps may have been installed).
         val allApps by produceState<List<AppEntry>?>(null, tick) { value = Apps.loadLaunchable(this@MainActivity) }
@@ -290,15 +346,30 @@ class MainActivity : ComponentActivity() {
             Screen.HOME -> {
                 BackHandler { /* Home is the bottom of the stack: Back does nothing. */ }
                 val armed = settings.setupDone && settings.protectionEnabled
-                if (armed && !status.accessibility && !a11yWarningCleared) {
+                if (!homeEnabled) {
+                    FamilyLockOffScreen()
+                } else if (armed && !status.accessibility && !a11yWarningCleared) {
                     AccessibilityOffWarning()
                 } else {
                     val showAll = !armed || tempActive
                     val visible = allApps?.filter { showAll || it.packageName in settings.allowedApps }
                     HomeScreen(
                         apps = visible,
+                        resetKey = tick,
                         onLaunch = { Apps.launch(this, it) },
-                        onAdminRequested = { screen = Screen.PIN_GATE },
+                        onAdminRequested = {
+                            pinTarget = Screen.ADMIN
+                            screen = Screen.PIN_GATE
+                        },
+                        onMainScreenSwitch = {
+                            if (LockManager.isTempAccessActive()) {
+                                LockManager.stopTempAccess() // locking again needs no PIN
+                            } else {
+                                pinTarget = Screen.ADMIN_TEMP
+                                accessReturn = Screen.HOME
+                                screen = Screen.PIN_GATE
+                            }
+                        },
                     )
                 }
             }
@@ -313,7 +384,7 @@ class MainActivity : ComponentActivity() {
                     onCancel = { screen = Screen.HOME },
                 ) { pin ->
                     when (LockManager.checkPin(pin)) {
-                        PinResult.OK -> screen = Screen.ADMIN
+                        PinResult.OK -> screen = pinTarget
                         PinResult.MASTER -> screen = Screen.ADMIN_CHANGE_PIN
                         PinResult.WRONG -> error = "Wrong PIN"
                     }
@@ -330,7 +401,10 @@ class MainActivity : ComponentActivity() {
                         close = { screen = Screen.HOME },
                         chooseApps = { screen = Screen.ADMIN_APPS },
                         changePin = { screen = Screen.ADMIN_CHANGE_PIN },
-                        tempAccess = { screen = Screen.ADMIN_TEMP },
+                        tempAccess = {
+                            accessReturn = Screen.ADMIN
+                            screen = Screen.ADMIN_TEMP
+                        },
                         setProtection = { on -> LockManager.update { setProtectionEnabled(on) } },
                         fixAccessibility = { SystemActions.openAccessibilitySettings(this) },
                         activateAdmin = { SystemActions.requestDeviceAdmin(this) },
@@ -369,15 +443,36 @@ class MainActivity : ComponentActivity() {
             }
 
             Screen.ADMIN_TEMP -> {
-                BackHandler { screen = Screen.ADMIN }
-                TempAccessScreen(
-                    onStart = { minutes ->
-                        LockManager.startTempAccess(minutes * 60_000L)
-                        screen = Screen.HOME
-                    },
-                    onCancel = { screen = Screen.ADMIN },
+                BackHandler { screen = accessReturn }
+                MainScreenAccessScreen(
+                    onStart = ::startFullAccess,
+                    onPermanent = ::returnToMainScreenPermanently,
+                    onCancel = { screen = accessReturn },
                 )
             }
+        }
+    }
+
+    /**
+     * Shown when Family Lock is opened from its app icon after a "permanent
+     * return to main screen": explains that it is off and offers to turn it on.
+     */
+    @Composable
+    private fun FamilyLockOffScreen() {
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Eyebrow("Family Lock")
+            Text("Family Lock\nis off", fontSize = 40.sp, lineHeight = 46.sp, fontWeight = FontWeight.Thin,
+                modifier = Modifier.padding(top = 10.dp, bottom = 14.dp))
+            Text(
+                "The phone is using its normal home screen and nothing is locked.\n\n" +
+                    "Turning it back on locks the hidden apps again. Android will then ask you to " +
+                    "choose Family Lock as the home app.",
+                color = Bw.Muted, fontSize = 14.5.sp, lineHeight = 22.sp,
+            )
+            BwButton("Turn Family Lock back on", ::turnFamilyLockBackOn, Modifier.fillMaxWidth().padding(top = 28.dp))
         }
     }
 

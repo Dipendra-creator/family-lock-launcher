@@ -90,11 +90,11 @@ fun AdminPanel(settings: LockSettings, status: ProtectionStatus, actions: AdminA
             Hairline()
             if (remainingMs > 0) {
                 PanelRow(
-                    "Stop temporary full access", "${formatDuration(remainingMs)} left - tap to lock now",
+                    "Stop full access", "${formatDuration(remainingMs)} left - tap to lock now",
                     onClick = { LockManager.stopTempAccess() },
                 )
             } else {
-                PanelRow("Temporary full access", "Unlock everything for a limited time", onClick = actions.tempAccess)
+                PanelRow("Main screen / full access", "Unlock everything for a limited time, or permanently", onClick = actions.tempAccess)
             }
             Hairline()
             PanelRow("Change PIN", null, onClick = actions.changePin)
@@ -225,66 +225,124 @@ private fun StatusRow(title: String, ok: Boolean, fixLabel: String, onFix: () ->
     }
 }
 
-/** Pick how long temporary full access lasts. */
+/**
+ * Asked after the PIN when the parent wants the normal phone back: pick a time
+ * limit (full access, then Family Lock returns by itself) or tick "permanent"
+ * to switch Family Lock off and restore the phone's own home screen.
+ */
 @Composable
-fun TempAccessScreen(onStart: (minutes: Long) -> Unit, onCancel: () -> Unit) {
+fun MainScreenAccessScreen(onStart: (minutes: Long) -> Unit, onPermanent: () -> Unit, onCancel: () -> Unit) {
+    var preset by remember { mutableStateOf<Long?>(10L) }
     var custom by remember { mutableStateOf("") }
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-    ) {
-        Eyebrow("Parent panel")
+    var permanent by remember { mutableStateOf(false) }
+    // A typed custom value wins over the preset tiles.
+    val minutes = custom.toLongOrNull() ?: preset ?: 0L
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+        Eyebrow("Main screen")
         Spacer(Modifier.height(6.dp))
-        Text("Temporary\nfull access", fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Light)
-        Spacer(Modifier.height(12.dp))
+        Text("Full access", fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Light)
+        Spacer(Modifier.height(10.dp))
         Text(
-            "All apps become visible and usable for the chosen time, then everything locks again " +
-                "automatically. Restarting the phone ends it early. Protected settings pages still need the PIN.",
+            "Opens the phone's normal home screen with every app unlocked. When the time is up, " +
+                "Family Lock comes back and locks again. Restarting the phone ends it early.",
             color = Bw.Muted, fontSize = 14.5.sp, lineHeight = 22.sp,
         )
         Spacer(Modifier.height(24.dp))
 
-        // Three preset durations as large outlined tiles.
+        Eyebrow("How long")
+        Spacer(Modifier.height(10.dp))
+        // Preset durations; the selected one is filled white. Dimmed when "permanent" is ticked.
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf(Triple(30L, "30", "MIN"), Triple(60L, "1", "HOUR"), Triple(120L, "2", "HOURS")).forEach { (minutes, big, unit) ->
+            listOf(Triple(10L, "10", "MIN"), Triple(60L, "1", "HOUR"), Triple(120L, "2", "HOURS")).forEach { (value, big, unit) ->
+                val selected = !permanent && custom.isEmpty() && preset == value
                 val shape = RoundedCornerShape(20.dp)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .weight(1f)
                         .clip(shape)
-                        .background(Bw.Card)
-                        .border(1.dp, Bw.White.copy(alpha = 0.35f), shape)
-                        .clickable { onStart(minutes) }
-                        .padding(vertical = 20.dp),
+                        .background(if (selected) Bw.White else Bw.Card)
+                        .border(1.dp, Bw.White.copy(alpha = if (permanent) 0.12f else 0.35f), shape)
+                        .clickable(enabled = !permanent) {
+                            preset = value
+                            custom = ""
+                        }
+                        .padding(vertical = 18.dp),
                 ) {
-                    Text(big, fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.Thin)
-                    Text(unit, color = Bw.Muted, fontSize = 11.sp, letterSpacing = 3.sp)
+                    val ink = when {
+                        selected -> Bw.Black
+                        permanent -> Bw.White.copy(alpha = 0.3f)
+                        else -> Bw.White
+                    }
+                    Text(big, color = ink, fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.Thin)
+                    Text(unit, color = if (selected) Bw.Black else Bw.Muted.copy(alpha = if (permanent) 0.4f else 1f), fontSize = 11.sp, letterSpacing = 3.sp)
                 }
             }
         }
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(
+            value = custom,
+            onValueChange = { v -> custom = v.filter(Char::isDigit).take(4) },
+            enabled = !permanent,
+            label = { Text("Custom minutes") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Bw.White,
+                unfocusedBorderColor = Bw.White.copy(alpha = 0.35f),
+                disabledBorderColor = Bw.White.copy(alpha = 0.12f),
+                focusedLabelColor = Bw.White,
+                unfocusedLabelColor = Bw.Muted,
+                disabledLabelColor = Bw.Muted.copy(alpha = 0.4f),
+                cursorColor = Bw.White,
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(
-                value = custom,
-                onValueChange = { v -> custom = v.filter(Char::isDigit).take(4) },
-                label = { Text("Custom minutes") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Bw.White,
-                    unfocusedBorderColor = Bw.White.copy(alpha = 0.35f),
-                    focusedLabelColor = Bw.White,
-                    unfocusedLabelColor = Bw.Muted,
-                    cursorColor = Bw.White,
-                ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f),
-            )
-            val minutes = custom.toLongOrNull() ?: 0L
-            BwButton("Start", { onStart(minutes) }, enabled = minutes > 0)
+        Spacer(Modifier.height(20.dp))
+        // "Permanent" option.
+        val boxShape = RoundedCornerShape(18.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(boxShape)
+                .background(Bw.Card)
+                .border(1.dp, if (permanent) Bw.White else Bw.Line, boxShape)
+                .clickable { permanent = !permanent }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            BwCheck(permanent)
+            Column(Modifier.padding(start = 14.dp)) {
+                Text("Permanent return to main screen", fontSize = 15.5.sp)
+                Text(
+                    "Turns Family Lock off and restores the normal home screen until you turn it back on from the Family Lock app.",
+                    color = Bw.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        BwTextButton("CANCEL", onCancel)
+
+        Spacer(Modifier.height(24.dp))
+        if (permanent) {
+            BwButton("Return to main screen", onPermanent, Modifier.fillMaxWidth())
+        } else {
+            BwButton(
+                if (minutes > 0) "Start ${formatMinutes(minutes)} of full access" else "Start full access",
+                { onStart(minutes) },
+                Modifier.fillMaxWidth(),
+                enabled = minutes > 0,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        BwTextButton("CANCEL", onCancel, Modifier.align(Alignment.CenterHorizontally))
     }
+}
+
+/** 10 -> "10 min", 60 -> "1 hr", 90 -> "1 hr 30 min". */
+private fun formatMinutes(minutes: Long): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return listOfNotNull(if (h > 0) "$h hr" else null, if (m > 0) "$m min" else null).joinToString(" ")
 }

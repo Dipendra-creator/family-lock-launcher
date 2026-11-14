@@ -9,9 +9,13 @@ Sideload only (not for the Play Store). Kotlin + Jetpack Compose, Android 8.0+ (
 |---|---|---|
 | ![Home](docs/screenshots/home.png) | ![Lock](docs/screenshots/lock.png) | ![Panel](docs/screenshots/panel.png) |
 
-| Setup | Timer | Full access |
+| Main screen access | Full access | App search |
 |---|---|---|
-| ![Setup](docs/screenshots/setup.png) | ![Timer](docs/screenshots/timer.png) | ![Full access](docs/screenshots/full-access.png) |
+| ![Access](docs/screenshots/timer.png) | ![Full access](docs/screenshots/full-access.png) | ![Search](docs/screenshots/search.png) |
+
+| Setup | Family Lock off |
+|---|---|
+| ![Setup](docs/screenshots/setup.png) | ![Off](docs/screenshots/off.png) |
 
 It works **without Device Owner mode** (no factory reset, no account removal) by combining:
 
@@ -33,6 +37,7 @@ app/src/main/
     ├── App.kt                  loads settings at process start
     ├── MainActivity.kt         launcher + onboarding + parent panel (navigation)
     ├── Apps.kt                 lists / launches installed apps
+    ├── HomeMode.kt             switching to / from the phone's own home screen
     ├── Status.kt               "is accessibility / admin / default home / battery OK?"
     ├── SystemActions.kt        opens the system settings pages
     ├── data/SettingsStore.kt   DataStore persistence
@@ -89,10 +94,15 @@ Notes:
 
 ## Daily use
 
+- **Search:** type in the search box on the home screen; the keyboard's search key opens the first match.
+- **Main screen switch** (bottom of the home screen): asks for the PIN, then
+  - **10 min / 1 hour / 2 hours / custom:** opens the phone's normal home screen with every app
+    unlocked. When the time is up Family Lock comes back and locks again. A restart ends it early.
+    To end it sooner, open Family Lock from its app icon and tap the switch (no PIN needed to lock).
+  - **Permanent return to main screen:** turns Family Lock off and gives the Home button back to
+    the phone's own launcher. To undo, open the Family Lock app and tap **Turn Family Lock back on**.
 - **Parent panel:** long-press the clock on the home screen, enter the PIN.
 - **Master code:** `993311` works on every PIN screen and takes you straight to "set a new PIN".
-- **Temporary full access:** parent panel > Temporary full access. Ends on its own, and
-  ends immediately if the phone restarts.
 - **Uninstall:** parent panel > Deactivate device admin, then uninstall from App info.
 - **Last resort:** Safe Mode disables the app (accepted weakness / recovery path).
 
@@ -129,3 +139,7 @@ Notes:
 | 13 | Parent panel > Protection enabled off, then on | Off: everything visible and open. On: locked again |
 | 14 | Parent panel > Change PIN | Old PIN is refused, new PIN works |
 | 15 | Parent panel > Deactivate device admin | The app can then be uninstalled |
+| 16 | Type in the home-screen search box | Apps filter as you type; search key opens the first match |
+| 17 | Main screen switch > PIN > 10 min | Normal home screen opens, Home button stays there, everything unlocked; Family Lock returns when time is up |
+| 18 | Main screen switch > PIN > tick "Permanent return" | Normal launcher becomes the home app, nothing is locked |
+| 19 | Open Family Lock app > Turn Family Lock back on | Android asks for the home app; after choosing Family Lock everything is locked again |

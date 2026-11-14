@@ -19,7 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FamilyLock">
 
-        <!-- The launcher itself. The HOME filter lets it be chosen as the default home app. -->
+        <!-- The launcher itself (also reachable from the app list via its icon). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -27,17 +27,26 @@
             android:clearTaskOnLaunch="true"
             android:stateNotNeeded="true"
             android:excludeFromRecents="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Offers MainActivity as a HOME app. It is a separate alias so that "permanent
+             return to main screen" can switch it off (see HomeMode.kt) and hand the Home
+             button back to the phone's own launcher. -->
+        <activity-alias
+            android:name=".HomeAlias"
+            android:exported="true"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <!-- Watches the foreground window and shows the PIN overlay over blocked apps/screens. -->
         <service

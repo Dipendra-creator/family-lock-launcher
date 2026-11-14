@@ -62,7 +62,15 @@ class LockAccessibilityService : AccessibilityService() {
     /** package -> "has a launcher or home icon" cache. */
     private val launchableCache = HashMap<String, Boolean>()
 
-    private val recheck = Runnable { reevaluate() }
+    /**
+     * Runs when timed full access runs out. If the phone's own launcher is in
+     * front (that is where full access leaves the user), simply bring Family Lock
+     * back instead of showing a PIN screen over it; otherwise re-check the app.
+     */
+    private val recheck = Runnable {
+        if (LockManager.isProtectionActive() && lastPkg != packageName && isHomeApp(lastPkg)) goHome()
+        else reevaluate()
+    }
 
     private val systemReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -310,6 +318,12 @@ class LockAccessibilityService : AccessibilityService() {
             getSystemService(InputMethodManager::class.java).enabledInputMethodList.map { it.packageName }.toSet()
         }.getOrDefault(emptySet())
         return pkg in imePackages
+    }
+
+    private fun isHomeApp(pkg: String): Boolean {
+        if (pkg.isEmpty()) return false
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(pkg)
+        return packageManager.queryIntentActivities(home, 0).isNotEmpty()
     }
 
     /** True if the package shows up as an app (launcher icon) or is another home app. */
